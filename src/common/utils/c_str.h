@@ -68,7 +68,13 @@ public:
 
     inline bool isEqual(const char *str) const
     {
-        return (m_data != nullptr && str != nullptr && strcmp(m_data, str)) || (m_data == nullptr && m_data == nullptr);
+        return (m_data != nullptr && str != nullptr && strcmp(m_data, str) == 0) || (m_data == nullptr && m_data == nullptr);
+    }
+
+
+    inline bool contains(const char *str) const
+    {
+        return strstr(m_data, str) != nullptr;
     }
 
 

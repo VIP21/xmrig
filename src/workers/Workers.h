@@ -30,7 +30,7 @@
 #include <uv.h>
 #include <vector>
 
-#include "net/Job.h"
+#include "common/net/Job.h"
 #include "net/JobResult.h"
 #include "rapidjson/fwd.h"
 
@@ -114,6 +114,7 @@ private:
     static uv_mutex_t m_mutex;
     static uv_rwlock_t m_rwlock;
     static uv_timer_t m_timer;
+    static xmrig::Controller *m_controller;
 };
 
 

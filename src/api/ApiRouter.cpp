@@ -35,25 +35,19 @@
 #include "api/ApiRouter.h"
 #include "common/api/HttpReply.h"
 #include "common/api/HttpRequest.h"
+#include "common/cpu/Cpu.h"
+#include "common/crypto/keccak.h"
+#include "common/net/Job.h"
 #include "common/Platform.h"
 #include "core/Config.h"
 #include "core/Controller.h"
-#include "Cpu.h"
 #include "interfaces/IThread.h"
-#include "Mem.h"
-#include "net/Job.h"
 #include "rapidjson/document.h"
 #include "rapidjson/prettywriter.h"
 #include "rapidjson/stringbuffer.h"
 #include "version.h"
 #include "workers/Hashrate.h"
 #include "workers/Workers.h"
-
-
-extern "C"
-{
-#include "crypto/c_keccak.h"
-}
 
 
 static inline double normalize(double d)
@@ -72,7 +66,7 @@ ApiRouter::ApiRouter(xmrig::Controller *controller) :
     memset(m_workerId, 0, sizeof(m_workerId));
 
     setWorkerId(controller->config()->apiWorkerId());
-    genId();
+    genId(controller->config()->apiId());
 }
 
 
@@ -150,9 +144,14 @@ void ApiRouter::finalize(xmrig::HttpReply &reply, rapidjson::Document &doc) cons
 }
 
 
-void ApiRouter::genId()
+void ApiRouter::genId(const char *id)
 {
     memset(m_id, 0, sizeof(m_id));
+
+    if (id && strlen(id) > 0) {
+        strncpy(m_id, id, sizeof(m_id) - 1);
+        return;
+    }
 
     uv_interface_address_t *interfaces;
     int count = 0;
@@ -165,13 +164,15 @@ void ApiRouter::genId()
         if (!interfaces[i].is_internal && interfaces[i].address.address4.sin_family == AF_INET) {
             uint8_t hash[200];
             const size_t addrSize = sizeof(interfaces[i].phys_addr);
-            const size_t inSize   = strlen(APP_KIND) + addrSize;
+            const size_t inSize   = strlen(APP_KIND) + addrSize + sizeof(uint16_t);
+            const uint16_t port   = static_cast<uint16_t>(m_controller->config()->apiPort());
 
             uint8_t *input = new uint8_t[inSize]();
-            memcpy(input, interfaces[i].phys_addr, addrSize);
-            memcpy(input + addrSize, APP_KIND, strlen(APP_KIND));
+            memcpy(input, &port, sizeof(uint16_t));
+            memcpy(input + sizeof(uint16_t), interfaces[i].phys_addr, addrSize);
+            memcpy(input + sizeof(uint16_t) + addrSize, APP_KIND, strlen(APP_KIND));
 
-            keccak(input, static_cast<int>(inSize), hash, sizeof(hash));
+            xmrig::keccak(input, inSize, hash);
             Job::toHex(hash, 8, m_id);
 
             delete [] input;
@@ -237,19 +238,20 @@ void ApiRouter::getIdentify(rapidjson::Document &doc) const
 
 void ApiRouter::getMiner(rapidjson::Document &doc) const
 {
+    using namespace xmrig;
     auto &allocator = doc.GetAllocator();
 
     rapidjson::Value cpu(rapidjson::kObjectType);
-    cpu.AddMember("brand",   rapidjson::StringRef(Cpu::brand()), allocator);
-    cpu.AddMember("aes",     Cpu::hasAES(), allocator);
-    cpu.AddMember("x64",     Cpu::isX64(), allocator);
-    cpu.AddMember("sockets", Cpu::sockets(), allocator);
+    cpu.AddMember("brand",   rapidjson::StringRef(Cpu::info()->brand()), allocator);
+    cpu.AddMember("aes",     Cpu::info()->hasAES(), allocator);
+    cpu.AddMember("x64",     Cpu::info()->isX64(), allocator);
+    cpu.AddMember("sockets", Cpu::info()->sockets(), allocator);
 
     doc.AddMember("version",      APP_VERSION, allocator);
     doc.AddMember("kind",         APP_KIND, allocator);
     doc.AddMember("ua",           rapidjson::StringRef(Platform::userAgent()), allocator);
     doc.AddMember("cpu",          cpu, allocator);
-    doc.AddMember("algo",         rapidjson::StringRef(m_controller->config()->algoName()), allocator);
+    doc.AddMember("algo",         rapidjson::StringRef(m_controller->config()->algorithm().name()), allocator);
     doc.AddMember("hugepages",    Workers::hugePages() > 0, allocator);
     doc.AddMember("donate_level", m_controller->config()->donateLevel(), allocator);
 }
